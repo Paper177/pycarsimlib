@@ -170,16 +170,16 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-/ASR模型代码
-/ASR模型代码.rar
-/python-Simulink通信接口.rar
-/Run_IMP.xlsx
-/Run_OUT.xlsx
-/h
-/examples
-/logs
-/python-Simulink
-/media
+ASR模型代码
+ASR模型代码.rar
+python-Simulink通信接口.rar
+Run_IMP.xlsx
+Run_OUT.xlsx
+h
+examples
+logs
+python-Simulink
+media
 best_model_save
 ASR模型代码
 test_results
