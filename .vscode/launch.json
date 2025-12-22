@@ -4,60 +4,15 @@
     // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        
         {
-            "name": "Python: 当前文件",
-            "type": "python",
+            "name": "Python: 调试 train_ddpg_PC",
+            "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/python_carsim/train_ddpg_PC.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/pycarsimlib"
-            },
-            "debugOptions": [
-                "RedirectOutput"
-            ],
-            "python": "${command:python.interpreterPath}"
-        },
-        {
-            "name": "Python: 运行 runcarsim.py",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/runcarsim.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/pycarsimlib"
-            },
-            "args": [],
-            "stopOnEntry": false,
-            "showReturnValue": true,
-            "redirectOutput": true,
-            "python": "${command:python.interpreterPath}"
-        },
-        {
-            "name": "Python: 运行 DDPG 训练",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/examples/train_ddpg_carsim_speed.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/pycarsimlib"
-            },
-            "python": "${command:python.interpreterPath}",
-            "redirectOutput": true
-        },
-        {
-            "name": "Python: 模块调试",
-            "type": "python",
-            "request": "launch",
-            "module": "pycarsimlib",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/python_carsim",
             "env": {
                 "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/pycarsimlib"
             },

@@ -21,7 +21,7 @@ from dashboard import create_live_monitor
 
 # 请确保这些文件在同一目录下
 from ddpg_agent import DDPGAgent
-from env_pc import PythonCarsimEnv 
+from env_pc_noTC import PythonCarsimEnv 
 
 # ================= 绘图与日志功能 =================
 
@@ -31,17 +31,27 @@ def log_episode_visuals(writer, episode_num, history, save_dir=None):
     """
     # 创建一个 2x2 的画布
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-    fig.suptitle(f'Episode {episode_num} Detailed Analysis', fontsize=16)
+    fig.suptitle(f'Detailed Analysis', fontsize=16)
     
     steps = range(len(history['velocity']))
     
     # --- 图1: 四轮输出扭矩 (Action) ---
+    # 优先使用 CarSim 导出的实际扭矩，如果没有则使用 Agent 输出的扭矩
     ax = axes[0, 0]
-    ax.plot(steps, history['T_L1'], label='L1 (FL)', alpha=0.8, linewidth=1)
-    ax.plot(steps, history['T_R1'], label='R1 (FR)', alpha=0.8, linewidth=1)
-    ax.plot(steps, history['T_L2'], label='L2 (RL)', alpha=0.8, linewidth=1)
-    ax.plot(steps, history['T_R2'], label='R2 (RR)', alpha=0.8, linewidth=1)
-    ax.set_title('Wheel Torques (Nm)')
+    if 'carsim_trq_L1' in history and len(history['carsim_trq_L1']) > 0:
+        print("111")
+        ax.plot(steps, history['carsim_trq_L1'], label='L1 (CarSim)', alpha=0.8, linewidth=1)
+        ax.plot(steps, history['carsim_trq_R1'], label='R1 (CarSim)', alpha=0.8, linewidth=1)
+        ax.plot(steps, history['carsim_trq_L2'], label='L2 (CarSim)', alpha=0.8, linewidth=1)
+        ax.plot(steps, history['carsim_trq_R2'], label='R2 (CarSim)', alpha=0.8, linewidth=1)
+        ax.set_title('Wheel Torques (CarSim Output)')
+    else:
+        ax.plot(steps, history['T_L1'], label='L1 (Cmd)', alpha=0.8, linewidth=1)
+        ax.plot(steps, history['T_R1'], label='R1 (Cmd)', alpha=0.8, linewidth=1)
+        ax.plot(steps, history['T_L2'], label='L2 (Cmd)', alpha=0.8, linewidth=1)
+        ax.plot(steps, history['T_R2'], label='R2 (Cmd)', alpha=0.8, linewidth=1)
+        ax.set_title('Wheel Torques (Cmd)')
+    
     ax.set_ylabel('Torque')
     ax.legend(loc='upper right', fontsize='small')
     ax.grid(True, alpha=0.3)
@@ -60,7 +70,7 @@ def log_episode_visuals(writer, episode_num, history, save_dir=None):
         
     ax.set_title('Slip Ratios')
     ax.set_ylabel('Slip Ratio')
-    ax.set_ylim(-0.05, 0.5) # 限制一下Y轴范围，避免极端值导致图看不清
+    ax.set_ylim(-0.05, 1) # 限制一下Y轴范围，避免极端值导致图看不清
     ax.legend(loc='upper right', fontsize='small')
     ax.grid(True, alpha=0.3)
 
@@ -73,7 +83,7 @@ def log_episode_visuals(writer, episode_num, history, save_dir=None):
     ax.set_xlabel('Step')
     ax.legend()
     ax.grid(True, alpha=0.3)
-
+    '''
     # --- 图4: 奖励分析 (Rewards Breakdown) ---
     ax = axes[1, 1]
     ax.plot(steps, history['r_total'], 'k-', label='Total Reward', linewidth=2, alpha=0.9)
@@ -89,16 +99,8 @@ def log_episode_visuals(writer, episode_num, history, save_dir=None):
     ax.set_ylabel('Reward Value')
     ax.legend(loc='lower left', fontsize='x-small', ncol=2)
     ax.grid(True, alpha=0.3)
-
+    '''
     plt.tight_layout()
-    
-    # 转为 TensorBoard 格式
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=100)
-    buf.seek(0)
-    image = Image.open(buf)
-    image_tensor = transforms.ToTensor()(image)
-    writer.add_image('Episode_Replay_Charts', image_tensor, episode_num)
     
     # 保存到本地文件
     if save_dir:
@@ -109,7 +111,6 @@ def log_episode_visuals(writer, episode_num, history, save_dir=None):
         plt.savefig(save_path)
         
     plt.close(fig)
-    buf.close()
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -131,7 +132,7 @@ def train_ddpg_PC(
         'w_speed': 0.00,
         'w_accel': 0.6,
         'w_energy': 0.25,
-        'w_consistency': -0.0,
+        'w_consistency': -0.25,
         'w_beta': -0.0,
         'w_slip': -3.5,
         'w_smooth': -0.0
@@ -231,6 +232,7 @@ def train_ddpg_PC(
                 # [关键] 绘图数据容器 (Key 需要与 log_episode_visuals 对应)
                 episode_visual_history = {
                     'T_L1': [], 'T_R1': [], 'T_L2': [], 'T_R2': [],
+                    'carsim_trq_L1': [], 'carsim_trq_R1': [], 'carsim_trq_L2': [], 'carsim_trq_R2': [],
                     'S_L1': [], 'S_R1': [], 'S_L2': [], 'S_R2': [],
                     'velocity': [], 
                     'r_total': [], 
@@ -258,6 +260,13 @@ def train_ddpg_PC(
                     episode_visual_history['T_R1'].append(info.get('trq_R1', 0))
                     episode_visual_history['T_L2'].append(info.get('trq_L2', 0))
                     episode_visual_history['T_R2'].append(info.get('trq_R2', 0))
+
+                    # 记录 CarSim 导出扭矩 (如果环境提供了这些数据)
+                    if 'carsim_trq_L1' in info:
+                        episode_visual_history['carsim_trq_L1'].append(info['carsim_trq_L1'])
+                        episode_visual_history['carsim_trq_R1'].append(info['carsim_trq_R1'])
+                        episode_visual_history['carsim_trq_L2'].append(info['carsim_trq_L2'])
+                        episode_visual_history['carsim_trq_R2'].append(info['carsim_trq_R2'])
                     
                     # 记录滑移率 (对应 env_pc.py 的 keys: slip_L1, slip_R1...)
                     episode_visual_history['S_L1'].append(info.get('slip_L1', 0))
@@ -313,7 +322,7 @@ def train_ddpg_PC(
                 # --- Episode End ---
                 
                 # [绘图触发] 每10回合画一次
-                if (episode + 1) % 10 == 0:
+                if (episode) % 10 == 0:
                     log_episode_visuals(writer, episode, episode_visual_history, save_dir=log_path)
                 
                 # Summary stats
@@ -353,6 +362,11 @@ def train_ddpg_PC(
                 else:
                     writer.add_scalar('Train/Is_Elite', 0, episode)
                     noise_scale = max(min_noise, noise_scale * noise_decay)
+                
+                try:
+                    env.save_results_into_carsimdb()
+                except Exception as e:
+                    print(f"保存结果到CarSim DB时出错: {e}")
 
     except KeyboardInterrupt:
         print("人为停止训练...")
@@ -361,11 +375,121 @@ def train_ddpg_PC(
         traceback.print_exc()
     finally:
         env.close()
+        # 尝试保存结果到 CarSim 数据库目录
+        
+            
         agent.save_model(os.path.join(log_path, "final_model.pt"))
         print("资源已释放，训练结束。")
 
+def run_no_control_test():
+    """
+    运行无防滑控制的测试：
+    - 设置最大扭矩
+    - 动作始终为 [1.0, 1.0, 1.0, 1.0] (全油门/全扭矩)
+    - 记录并绘图，观察车轮打滑情况和 CarSim 输出扭矩
+    """
+    import datetime
+    
+    # 1. 配置日志路径
+    current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = os.path.join("logs_PC", f"No_Control_Test_{current_time}")
+    os.makedirs(log_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir=log_dir)
+
+    # 2. 初始化环境
+    CARSIM_DB_DIR = r"E:\CarSim2022\CarSim2022.1_Prog\RL"
+    if not os.path.exists(CARSIM_DB_DIR):
+        print(f"❌ 错误: 找不到 CarSim 数据库路径: {CARSIM_DB_DIR}")
+        return
+
+    # 设置较大的 max_torque 以模拟强劲动力导致打滑
+    env = PythonCarsimEnv(
+        carsim_db_dir=CARSIM_DB_DIR,
+        sim_time_s=10.0,      # 仿真时长
+        delta_time_s=0.05,    # 步长
+        vehicle_type="normal_vehicle",
+        max_torque=1500.0,    # 设定最大扭矩
+        target_slip_ratio=0.04, # 仅作参考
+        reward_weights={}
+    )
+
+    print("Start No-Control (Full Torque) Test...")
+    
+    try:
+        obs, info = env.reset()
+        done = False
+        step_count = 0
+        
+        # 记录数据容器
+        episode_visual_history = {
+            'T_L1': [], 'T_R1': [], 'T_L2': [], 'T_R2': [],
+            'carsim_trq_L1': [], 'carsim_trq_R1': [], 'carsim_trq_L2': [], 'carsim_trq_R2': [],
+            'S_L1': [], 'S_R1': [], 'S_L2': [], 'S_R2': [],
+            'velocity': [], 
+            'r_total': [], 
+            'target_slip': []
+        }
+
+        while not done:
+            # 无控制：始终输出最大扭矩 [1, 1, 1, 1]
+            action = np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+            
+            next_obs, reward, done, info = env.step(action)
+            
+            # 记录数据
+            episode_visual_history['T_L1'].append(info.get('trq_L1', 0))
+            episode_visual_history['T_R1'].append(info.get('trq_R1', 0))
+            episode_visual_history['T_L2'].append(info.get('trq_L2', 0))
+            episode_visual_history['T_R2'].append(info.get('trq_R2', 0))
+            
+            if 'carsim_trq_L1' in info:
+                episode_visual_history['carsim_trq_L1'].append(info['carsim_trq_L1'])
+                episode_visual_history['carsim_trq_R1'].append(info['carsim_trq_R1'])
+                episode_visual_history['carsim_trq_L2'].append(info['carsim_trq_L2'])
+                episode_visual_history['carsim_trq_R2'].append(info['carsim_trq_R2'])
+            
+            episode_visual_history['S_L1'].append(info.get('slip_L1', 0))
+            episode_visual_history['S_R1'].append(info.get('slip_R1', 0))
+            episode_visual_history['S_L2'].append(info.get('slip_L2', 0))
+            episode_visual_history['S_R2'].append(info.get('slip_R2', 0))
+            episode_visual_history['target_slip'].append(0.04)
+            
+            episode_visual_history['velocity'].append(info.get('vx', 0))
+            episode_visual_history['r_total'].append(reward)
+            
+            # 动态记录奖励分项
+            for k, v in info.items():
+                if k.startswith("R_"):
+                    if k not in episode_visual_history: episode_visual_history[k] = []
+                    episode_visual_history[k].append(v)
+            
+            step_count += 1
+            obs = next_obs
+
+        print(f"Test finished in {step_count} steps.")
+        
+        # 绘制并保存结果
+        log_episode_visuals(writer, 0, episode_visual_history, save_dir=log_dir)
+        print(f"Results saved to {log_dir}")
+        
+        # 自动保存 CarSim 结果文件夹
+        env.save_results_into_carsimdb()
+
+    except Exception as e:
+        print(f"An error occurred during testing: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    finally:
+        # 确保环境正确关闭
+        try:
+            env.save_results_into_carsimdb()
+        except Exception as e:
+             print(f"Error saving results in finally block: {e}")
+        env.close()
+        writer.close()
+
 if __name__ == "__main__":
     setup_seed(42)
-    train_ddpg_PC(
-        pretrained_model_path="best_model_save/Python_Carsim_20251217_144021.pt"
-    )
+    # train_ddpg_PC()
+    run_no_control_test()

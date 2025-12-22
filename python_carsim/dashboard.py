@@ -6,19 +6,28 @@ from rich.align import Align
 from rich.live import Live
 from rich.console import Console
 from datetime import datetime
+from collections import deque
+from rich.text import Text
 
 class TrainingDashboard:
     def __init__(self):
+        self.logs = deque(maxlen=8)  # 保存最近8条日志
         self.layout = Layout()
         self.layout.split_column(
             Layout(name="header", size=3),
             Layout(name="main", ratio=1),
+            Layout(name="logs", size=10), # 新增日志区域
             Layout(name="footer", size=3)
         )
         self.layout["main"].split_row(
             Layout(name="state_panel"),
             Layout(name="wheel_panel"),
         )
+
+    def log(self, message: str):
+        """添加一条日志到面板"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.logs.append(f"[{timestamp}] {message}")
 
     def generate_table(self, title, data_dict, style="cyan"):
         table = Table(title=title, expand=True, border_style=style)
@@ -83,8 +92,12 @@ class TrainingDashboard:
             )
 
         self.layout["wheel_panel"].update(Panel(wheel_table, title="Actuation & Contact"))
+
+        # 4. Logs Panel
+        log_text = "\n".join(self.logs)
+        self.layout["logs"].update(Panel(Text.from_markup(log_text), title="Training Logs", style="white"))
         
-        # 4. Footer
+        # 5. Footer
         self.layout["footer"].update(Panel(Align.center("Press Ctrl+C to Stop Training safely"), style="grey50"))
 
         return self.layout

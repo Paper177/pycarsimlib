@@ -35,12 +35,14 @@ class NormalVehicle:
         """ define variables to be observed """
         self.export_label_array = [
             "Vx",
+            "Vy"
             "Ax",
             "AVz",
             "AVy_L1",
             "AVy_R1",
             "AVy_L2",
-            "AVy_R2"
+            "AVy_R2",
+            "Steer_SW"
         ]
 
     def get_import_labels(self):

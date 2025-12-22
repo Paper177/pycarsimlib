@@ -1,10 +1,9 @@
-# env_pc.py
 from attr import s
 import numpy as np
+import shutil
 from datetime import timedelta
 from typing import Dict, Tuple, Optional, Any
 import os
-import shutil
 from pycarsimlib.core import CarsimManager
 
 class PythonCarsimEnv:
@@ -34,6 +33,12 @@ class PythonCarsimEnv:
     EXP_WHEEL_R1 = "AVy_R1"
     EXP_WHEEL_L2 = "AVy_L2"
     EXP_WHEEL_R2 = "AVy_R2"
+
+    # 3. 扭矩输出 (CarSim Export)
+    EXP_TORQUE_OUT_L1 = "MY_DR_L1"
+    EXP_TORQUE_OUT_R1 = "MY_DR_R1"
+    EXP_TORQUE_OUT_L2 = "MY_DR_L2"
+    EXP_TORQUE_OUT_R2 = "MY_DR_R2"
 
     # ====================================================
 
@@ -121,16 +126,11 @@ class PythonCarsimEnv:
         # 1. 动作处理 (Agent输出 [0, 1] -> 物理扭矩)
         action = np.clip(action, 0.0, 1.0)
         target_torque = action * self.max_torque
+        
         # 2. 构造 CarSim 输入字典
         control_inputs = {
-            self.IMP_THROTTLE: 0.0,      # 不踩油门踏板，直接控扭矩
-            self.IMP_BRAKE: 0.0,
-            
-            # 4轮扭矩
-            self.IMP_TORQUE_L1: target_torque[0],
-            self.IMP_TORQUE_R1: target_torque[1],
-            self.IMP_TORQUE_L2: target_torque[2],
-            self.IMP_TORQUE_R2: target_torque[3],
+            self.IMP_THROTTLE: 1.0,      # 踩满
+            self.IMP_BRAKE: 0.0
         }
         
         # 3. 物理仿真一步
@@ -153,6 +153,13 @@ class PythonCarsimEnv:
         
         # 7. 构造详细 Info (用于看板显示)
         # raw_state 索引: 0:Vx, 1:Ax, 2:SL1, 3:SR1, 4:SL2, 5:SR2, 6:Yaw
+        
+        # 从 obs 获取 CarSim 实际输出扭矩
+        carsim_trq_L1 = obs.get(self.EXP_TORQUE_OUT_L1, 0.0)
+        carsim_trq_R1 = obs.get(self.EXP_TORQUE_OUT_R1, 0.0)
+        carsim_trq_L2 = obs.get(self.EXP_TORQUE_OUT_L2, 0.0)
+        carsim_trq_R2 = obs.get(self.EXP_TORQUE_OUT_R2, 0.0)
+        
         info = {
             # --- 车辆状态 ---
             "vx": raw_state[0],       # km/h
@@ -170,6 +177,12 @@ class PythonCarsimEnv:
             "trq_R1": target_torque[1],
             "trq_L2": target_torque[2],
             "trq_R2": target_torque[3],
+            
+            # --- CarSim 实际输出扭矩 (Nm) ---
+            "carsim_trq_L1": carsim_trq_L1,
+            "carsim_trq_R1": carsim_trq_R1,
+            "carsim_trq_L2": carsim_trq_L2,
+            "carsim_trq_R2": carsim_trq_R2,
             
             # --- 奖励细节 ---
             **r_details
@@ -192,53 +205,6 @@ class PythonCarsimEnv:
         if self.cm:
             self.cm.close()
             self.cm = None
-
-    def save_results_into_carsimdb(self, results_dir: str = "Results"):
-        """
-        将CarSim生成的 Results 文件夹内容复制到当前simfile所在的同级Results目录中,
-        以便在CarSim软件中查看动画和绘图。
-        
-        Args:
-            results_dir: 默认为 "Results" (CarSim标准输出目录名)
-        """
-        if not self.cm:
-            print("Error: CarSim simulation instance is not initialized.")
-            return
-
-        # 1. 获取本次仿真临时工作目录 (例如 C:\Users\...\AppData\Local\Temp\pycarsimlib_xxxxx\)
-        #    在 pycarsimlib 中，self.cm.sim_path 指向的是 simfile (simfile.sim) 的路径
-        sim_dir = os.path.dirname(self.cm.simfile_path)
-        
-        # 2. 构造源目录路径: 临时目录下的 Results 文件夹
-        source_results_path = os.path.join(sim_dir, results_dir)
-        
-        # 3. 构造目标目录路径: carsim_db_dir 下的 Results 文件夹
-        #    注意：CarSim工程通常要求 Results 文件夹与 .sim 文件引用路径一致
-        #    这里我们简单地将其放回数据库根目录下的 Results 文件夹
-        #    如果数据库结构不同，需要调整此处逻辑
-        target_results_path = os.path.join(self.carsim_db_dir, results_dir)
-
-        print(f"[Save Results] 正在保存仿真结果...")
-        print(f"  源路径: {source_results_path}")
-        print(f"  目标路径: {target_results_path}")
-
-        if not os.path.exists(source_results_path):
-            print(f"  [Warning] 源结果目录不存在: {source_results_path}，可能仿真未生成结果或路径错误。")
-            return
-
-        try:
-            # 如果目标目录存在，CarSim可能正在占用或需要覆盖
-            # copytree 默认要求目标目录不存在 (dirs_exist_ok=True 在 Python 3.8+ 可用)
-            # 为兼容性，建议使用 copytree(..., dirs_exist_ok=True)
-            
-            if os.path.exists(target_results_path):
-                # 简单策略：覆盖同名文件
-                pass
-            
-            shutil.copytree(source_results_path, target_results_path, dirs_exist_ok=True)
-            print(f"  [Success] 结果已成功保存到 CarSim 数据库目录。")
-        except Exception as e:
-            print(f"  [Error] 保存结果失败: {e}")
 
     # ================= 辅助函数 =================
     
@@ -270,7 +236,7 @@ class PythonCarsimEnv:
         v_R1_c = ((vx_ms + avz*0.5*self.veh_bf)*np.cos(steer)  + (vy+avz*self.veh_lf)*np.sin(steer)) * 3.6
         v_L2_c = ((vx_ms - avz*0.5*self.veh_br)*np.cos(steer) ) * 3.6 
         v_R2_c = ((vx_ms + avz*0.5*self.veh_br)*np.cos(steer) ) * 3.6
-
+        
         s_L1 = (v_L1 - v_L1_c) / max(abs(v_L1), abs(v_L1_c)) if max(abs(v_L1), abs(v_L1_c)) > 3.0 else 0.0
         s_R1 = (v_R1 - v_R1_c) / max(abs(v_R1), abs(v_R1_c)) if max(abs(v_R1), abs(v_R1_c)) > 3.0 else 0.0
         s_L2 = (v_L2 - v_L2_c) / max(abs(v_L2), abs(v_L2_c)) if max(abs(v_L2), abs(v_L2_c)) > 3.0 else 0.0
@@ -284,8 +250,8 @@ class PythonCarsimEnv:
         n_s = raw_state.copy()
         n_s[0] = raw_state[0] / 100.0  # Vx
         n_s[1] = raw_state[1] / 1.0    # Ax
-        n_s[2:6] = raw_state[2:6] / 1.0  # Slips (0-1 typically)
-        n_s[6] = raw_state[6] / 1.5    # Avz (rad/s), 1.5 rad/s is approx 86 deg/s, reasonable max
+        n_s[2:6] = raw_state[2:6] / 1  # Slips
+        n_s[6] = raw_state[6] / 50.0   # Avz
         return n_s
 
     def _calculate_reward(self, state, current_torque, last_torque):
@@ -312,15 +278,10 @@ class PythonCarsimEnv:
         if vx > 3.0: # 车动起来再算
             r_slip = w['w_slip'] * excess # 放大惩罚
             
-        # 3. Energy (Penalty for high torque usage)
-        # Assuming w_energy is positive in config, we subtract it or handle sign there.
-        # But typically energy is a cost. Let's make it consistent with standard RL practices.
-        # If weight is positive, this term adds to reward. User's config had positive weight.
-        # We should probably change the formula to reflect penalty if weight is positive, OR change weight to negative.
-        # Here we keep formula simple and rely on weight being negative, OR change formula to abs().
-        # Let's use absolute value of torque ratio, as torque can be negative (though in this env torque seems 0-1 mapped from action?)
-        # IMP_TORQUE inputs are usually absolute torque requests.
-        r_energy = w['w_energy'] * np.mean(np.abs(current_torque/self.max_torque))
+        # 3. Energy
+        r_energy = w['w_energy'] * np.mean((current_torque/self.max_torque))
+        
+        # 4. Consistency 
         r_consistency = w['w_consistency'] * (abs(current_torque[0] - current_torque[1])+abs(current_torque[2] - current_torque[3]))/self.max_torque
 
         # 5. Smooth
@@ -333,3 +294,23 @@ class PythonCarsimEnv:
 
     def get_state_dim(self): return self.state_dim
     def get_action_dim(self): return self.action_dim
+    
+    def save_results_into_carsimdb(self, results_source_dir: str = "", results_target_dir: str = "") -> None:
+        """
+        将仿真结果保存到CarSim数据库目录
+        
+        参数:
+            results_source_dir: 结果源目录路径（默认使用当前工作目录下的Results文件夹）
+            results_target_dir: 结果目标目录路径（默认使用CarSim数据库下的Results文件夹）
+        """
+        # 设置默认路径
+        if not results_source_dir:
+            results_source_dir = os.path.join(os.getcwd(), "Results")
+        
+        if not results_target_dir:
+            results_target_dir = os.path.join(self.carsim_db_dir, "Results")
+        
+        # 复制结果目录
+        print(f"正在保存结果到: {results_target_dir}")
+        shutil.copytree(results_source_dir, results_target_dir, dirs_exist_ok=True)
+        print("结果保存成功。")
